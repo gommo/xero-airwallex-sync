@@ -1,0 +1,74 @@
+# xero-airwallex-sync
+
+A small tool that syncs **non-AUD Airwallex wallet transactions** into Xero as **AUD-denominated bank account lines**, so you can stay on a cheap Xero plan and skip the multicurrency add-on.
+
+## The problem
+
+Xero's multicurrency support is paywalled behind their premium plans. But if you run an Airwallex global account, you've probably got USD/EUR/etc. wallets covering overseas subscriptions (Render, JetBrains, GitHub, OpenAI, etc.) that you'd still like to see in Xero for proper P&L tracking.
+
+## What it does
+
+1. Pulls Airwallex `financial_transactions` + `balances/history` into a local SQLite cache
+2. For each `SETTLED` non-AUD transaction, looks up the **daily AUD↔CCY rate** on the txn date (via [frankfurter.app](https://www.frankfurter.app/) — free ECB rates, no key)
+3. Posts each as a `SPEND`/`RECEIVE` Xero `BankTransaction` against a manually-pre-created AUD-denominated bank account (e.g. `AWX_..._Cash_USD`), using the converted AUD amount and a description like `USD 157.60 → AUD 219.81 @ 0.71698`
+4. Tags lines as **GST Free Expenses** (`EXEMPTEXPENSES`) — overseas suppliers, no GST
+5. Supports a **merchant → account-code mapping** table so RENDER.COM auto-codes to Product Hosting, etc.
+6. Idempotent — re-runs skip already-posted txns by tracking `airwallex_id → xero_txn_id` locally
+7. Handles **FX conversion legs** by surfacing them as manual hints — you reconcile them in Xero's AUD account using the native Transfer mechanic, which auto-creates the matching credit on the non-AUD side
+
+The AUD wallet itself is **not** touched by this tool — Xero's built-in Airwallex bank feed already handles AUD.
+
+## Setup
+
+```sh
+pnpm install
+cp .env.local.example .env.local
+# Fill in:
+#   AIRWALLEX_CLIENT_ID / AIRWALLEX_API_KEY  (read-only key is enough)
+#   XERO_CLIENT_ID / XERO_CLIENT_SECRET      (Custom Connection in Xero — client_credentials, no OAuth dance)
+#   XERO_TENANT_ID                            (your tenant UUID)
+#   XERO_EXPENSE_CODE                         (default account code for unmapped merchants)
+#   PUSHOVER_USER_KEY / PUSHOVER_APP_TOKEN    (optional, for daily notifications)
+```
+
+Pre-create the Xero bank account(s) yourself, named e.g. `AWX_<Org> Pty Ltd_Cash_USD` (type `Bank`, currency `AUD`).
+
+## Daily use
+
+```sh
+pnpm sync airwallex              # pull txns + balance_history
+pnpm sync plan                   # dry-run preview of planned Xero postings
+pnpm sync post --commit          # actually post new SETTLED rows (idempotent)
+pnpm sync update-xero --commit   # refresh metadata on existing rows (re-applies current mappings)
+pnpm sync summary                # plain-text status digest
+```
+
+## Merchant → account-code mappings
+
+```sh
+pnpm sync map add RENDER 492          # case-insensitive substring; longest pattern wins
+pnpm sync map add JETBRAINS 486
+pnpm sync map list
+pnpm sync map remove RENDER
+```
+
+Discover available codes with `pnpm sync xero-chart` (Xero chart of accounts).
+
+## Scheduling
+
+`scripts/run-sync.sh` chains all three commands and sends a Pushover notification. `scripts/com.tributech.xero-airwallex-sync.plist` is a macOS LaunchAgent that fires it daily — adjust the absolute paths inside, then:
+
+```sh
+cp scripts/com.tributech.xero-airwallex-sync.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.tributech.xero-airwallex-sync.plist
+```
+
+## Limitations
+
+- Airwallex's `balances/history` (the only endpoint with merchant names) has a ~7-day rolling window. **Sync at least every few days** or older captures get logged with generic "Airwallex USD card purchase" descriptions instead of merchant names.
+- The `/issuing/transactions` endpoint (which would give us forever-historical merchant data) is gated at the Airwallex org level — even an admin key with all issuing scopes ticked returns `access_denied_not_enabled`. Reach out to Airwallex support if you want this unlocked.
+- The "USD bank account" balance in Xero will drift from the actual USD wallet balance × current rate, because each historical txn is converted at *its* day's rate. This is expected and correct accounting.
+
+## License
+
+Personal use. Adapt freely.
