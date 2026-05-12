@@ -74,7 +74,11 @@ run() { echo "----- $(date -u +%FT%TZ) $1 -----" | tee -a "$LOG" "$RUN_LOG"; shi
 
 run "airwallex pull"        pnpm sync airwallex;          A=$?
 run "post new SETTLED"      pnpm sync post --commit;      P=$?
-run "update existing"       pnpm sync update-xero --commit; U=$?
+
+# Intentionally NOT chained in daily: `update-xero --commit`.
+# It re-PUTs every existing row, which overwrites manual Xero edits.
+# Run that one by hand when you want to push refreshed metadata
+# (e.g. after adding a merchant mapping).
 
 # read PUSHOVER_* from .env.local, build success or failure body, POST to api.pushover.net/1/messages.json
 # success body comes from: pnpm --silent sync summary

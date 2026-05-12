@@ -105,3 +105,13 @@ const migrations = [
 db.transaction(() => {
   for (const stmt of migrations) db.exec(stmt);
 })();
+
+// Best-effort column additions; ignore "duplicate column" errors.
+function tryAddColumn(table: string, column: string, decl: string) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  } catch (e) {
+    if (!/duplicate column/i.test((e as Error).message)) throw e;
+  }
+}
+tryAddColumn("xero_postings", "last_pushed_hash", "TEXT");

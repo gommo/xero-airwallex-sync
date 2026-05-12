@@ -154,11 +154,12 @@ program
 
 program
   .command("update-xero")
-  .description("Push refreshed Contact/Description to already-posted Xero BankTransactions")
+  .description("Push refreshed metadata only for rows whose plan hash changed since last push (e.g. after adding a mapping)")
   .option("--commit", "actually call Xero (without this, dry-run)")
   .option("--limit <n>", "update at most N entries", (v) => parseInt(v, 10))
-  .action(async (opts: { commit?: boolean; limit?: number }) => {
-    await updateExistingPostings({ commit: !!opts.commit, limit: opts.limit });
+  .option("--force", "ignore the hash check and push every posted row (clobbers manual Xero edits)")
+  .action(async (opts: { commit?: boolean; limit?: number; force?: boolean }) => {
+    await updateExistingPostings({ commit: !!opts.commit, limit: opts.limit, force: !!opts.force });
   });
 
 program

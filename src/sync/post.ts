@@ -2,11 +2,12 @@ import { db } from "../db/db.js";
 import { log } from "../log.js";
 import { planPostings, type PlannedPosting } from "./plan.js";
 import { postBankTransaction } from "../xero/bank-transactions.js";
+import { planHash } from "./hash.js";
 
 const alreadyPosted = db.prepare("SELECT 1 FROM xero_postings WHERE airwallex_id = ?");
 const recordPosting = db.prepare(`
-  INSERT INTO xero_postings (airwallex_id, xero_txn_id, aud_amount, fx_rate)
-  VALUES (@airwallex_id, @xero_txn_id, @aud_amount, @fx_rate)
+  INSERT INTO xero_postings (airwallex_id, xero_txn_id, aud_amount, fx_rate, last_pushed_hash)
+  VALUES (@airwallex_id, @xero_txn_id, @aud_amount, @fx_rate, @hash)
   ON CONFLICT(airwallex_id) DO NOTHING
 `);
 
@@ -50,6 +51,7 @@ export async function postToXero(opts: PostOptions): Promise<void> {
         xero_txn_id: xeroId,
         aud_amount: plan.aud_amount,
         fx_rate: plan.fx_rate,
+        hash: planHash(plan),
       });
       posted += 1;
       log.info({ ref: plan.reference, xero_id: xeroId, aud: plan.aud_amount }, "posted");
