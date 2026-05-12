@@ -5,3 +5,5 @@ dist
 data/
 *.log
 .DS_Store
+# Local-only operator scripts (paths hardcoded to my machine; see README "Daily sync").
+scripts/

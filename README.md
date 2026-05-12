@@ -54,14 +54,60 @@ pnpm sync map remove RENDER
 
 Discover available codes with `pnpm sync xero-chart` (Xero chart of accounts).
 
-## Scheduling
+## Daily sync
 
-`scripts/run-sync.sh` chains all three commands and sends a Pushover notification. `scripts/com.tributech.xero-airwallex-sync.plist` is a macOS LaunchAgent that fires it daily — adjust the absolute paths inside, then:
+Operator wrapper scripts are kept out of the repo (they hardcode absolute paths to my machine). To set up a daily run on macOS, drop the following two files into `scripts/` and load the LaunchAgent.
+
+**`scripts/run-sync.sh`** — sequence + Pushover notification:
 
 ```sh
+#!/bin/bash
+set -uo pipefail
+export PATH="/Users/<you>/.nodenv/shims:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+cd /path/to/xero-airwallex-sync
+
+LOG=./data/sync.log
+RUN_LOG=./data/last-run.log
+mkdir -p ./data; : > "$RUN_LOG"
+
+run() { echo "----- $(date -u +%FT%TZ) $1 -----" | tee -a "$LOG" "$RUN_LOG"; shift; "$@" 2>&1 | tee -a "$LOG" "$RUN_LOG"; return ${PIPESTATUS[0]}; }
+
+run "airwallex pull"        pnpm sync airwallex;          A=$?
+run "post new SETTLED"      pnpm sync post --commit;      P=$?
+run "update existing"       pnpm sync update-xero --commit; U=$?
+
+# read PUSHOVER_* from .env.local, build success or failure body, POST to api.pushover.net/1/messages.json
+# success body comes from: pnpm --silent sync summary
+```
+
+**`scripts/com.tributech.xero-airwallex-sync.plist`** — macOS LaunchAgent that runs daily at 07:15:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.tributech.xero-airwallex-sync</string>
+  <key>ProgramArguments</key><array><string>/path/to/scripts/run-sync.sh</string></array>
+  <key>StartCalendarInterval</key><dict>
+    <key>Hour</key><integer>7</integer><key>Minute</key><integer>15</integer>
+  </dict>
+  <key>StandardOutPath</key><string>/path/to/data/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>/path/to/data/launchd.err.log</string>
+</dict></plist>
+```
+
+Install:
+
+```sh
+chmod +x scripts/run-sync.sh
 cp scripts/com.tributech.xero-airwallex-sync.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.tributech.xero-airwallex-sync.plist
+
+# Force a run now to verify:
+launchctl start com.tributech.xero-airwallex-sync
+tail -f data/sync.log
 ```
+
+If launchd misfires (laptop asleep at 07:15), it'll run on next wake.
 
 ## Limitations
 
