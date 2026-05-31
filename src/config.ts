@@ -7,6 +7,8 @@ const schema = z.object({
   AIRWALLEX_CLIENT_ID: z.string().min(1, "missing AIRWALLEX_CLIENT_ID in .env.local"),
   AIRWALLEX_API_KEY: z.string().min(1, "missing AIRWALLEX_API_KEY in .env.local"),
   AIRWALLEX_BASE_URL: z.string().url().default("https://api.airwallex.com"),
+  STRIPE_API_READONLY_KEY: z.string().optional(),
+  STRIPE_BASE_URL: z.string().url().default("https://api.stripe.com"),
   XERO_CLIENT_ID: z.string().optional(),
   XERO_CLIENT_SECRET: z.string().optional(),
   XERO_TENANT_ID: z.string().optional(),

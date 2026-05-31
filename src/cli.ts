@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { syncAirwallex } from "./sync/airwallex-sync.js";
+import { syncStripe } from "./sync/stripe-sync.js";
 import { listConversionPairs } from "./sync/conversions.js";
 import { planPostings } from "./sync/plan.js";
 import { postToXero } from "./sync/post.js";
@@ -33,10 +34,33 @@ program
   });
 
 program
+  .command("stripe")
+  .description("Pull Stripe balance_transactions + payouts into local SQLite (read-only; writes nothing to Xero)")
+  .option("--since <date>", "ISO date or YYYY-MM-DD; default = 6 months ago")
+  .option("--until <date>", "ISO date or YYYY-MM-DD; default = now")
+  .action(async (opts: { since?: string; until?: string }) => {
+    const to = opts.until ? new Date(opts.until) : new Date();
+    const defaultSince = new Date(to);
+    defaultSince.setMonth(defaultSince.getMonth() - 6);
+    const from = opts.since ? new Date(opts.since) : defaultSince;
+    log.info({ from: from.toISOString(), to: to.toISOString() }, "starting stripe sync");
+    await syncStripe({ from, to });
+    log.info("done");
+  });
+
+program
   .command("stats")
   .description("Show row counts in local db")
   .action(() => {
-    const tables = ["airwallex_transactions", "wallets", "sync_cursors", "fx_rates", "xero_postings"];
+    const tables = [
+      "airwallex_transactions",
+      "stripe_balance_transactions",
+      "stripe_payouts",
+      "wallets",
+      "sync_cursors",
+      "fx_rates",
+      "xero_postings",
+    ];
     for (const t of tables) {
       const row = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number };
       log.info({ table: t, rows: row.n });
@@ -45,6 +69,12 @@ program
       .prepare("SELECT currency, status, COUNT(*) AS n FROM airwallex_transactions GROUP BY currency, status ORDER BY currency, status")
       .all() as Array<{ currency: string; status: string; n: number }>;
     for (const r of byStatus) log.info(r, "airwallex breakdown");
+    const byCategory = db
+      .prepare(
+        "SELECT reporting_category, type, COUNT(*) AS n, SUM(net) AS net_minor, currency FROM stripe_balance_transactions GROUP BY reporting_category, type ORDER BY reporting_category",
+      )
+      .all() as Array<{ reporting_category: string; type: string; n: number; net_minor: number; currency: string }>;
+    for (const r of byCategory) log.info(r, "stripe breakdown");
   });
 
 program

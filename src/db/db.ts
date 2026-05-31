@@ -61,6 +61,38 @@ const migrations = [
     fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_awx_bh_ftx ON airwallex_balance_history(financial_txn_id)`,
+  `CREATE TABLE IF NOT EXISTS stripe_balance_transactions (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    reporting_category TEXT,
+    currency TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    fee INTEGER NOT NULL,
+    net INTEGER NOT NULL,
+    exchange_rate REAL,
+    source_id TEXT,
+    source_type TEXT,
+    presentment_currency TEXT,
+    presentment_amount INTEGER,
+    description TEXT,
+    created TEXT NOT NULL,
+    raw_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_stripe_bt_category_created ON stripe_balance_transactions(reporting_category, created)`,
+  `CREATE INDEX IF NOT EXISTS idx_stripe_bt_type ON stripe_balance_transactions(type)`,
+  `CREATE TABLE IF NOT EXISTS stripe_payouts (
+    id TEXT PRIMARY KEY,
+    amount INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    status TEXT,
+    method TEXT,
+    automatic INTEGER,
+    arrival_date TEXT,
+    created TEXT NOT NULL,
+    raw_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE TABLE IF NOT EXISTS merchant_mappings (
     pattern TEXT PRIMARY KEY,
     account_code TEXT NOT NULL,
@@ -132,3 +164,7 @@ tryAddColumn("merchant_mappings", "tracking_1_id", "TEXT");
 tryAddColumn("merchant_mappings", "tracking_1_option_id", "TEXT");
 tryAddColumn("merchant_mappings", "tracking_2_id", "TEXT");
 tryAddColumn("merchant_mappings", "tracking_2_option_id", "TEXT");
+// Product attribution for Stripe charges (resolved at ingestion from
+// subscription item / checkout session), so revenue splits by product, not amount.
+tryAddColumn("stripe_balance_transactions", "product_id", "TEXT");
+tryAddColumn("stripe_balance_transactions", "product_name", "TEXT");
