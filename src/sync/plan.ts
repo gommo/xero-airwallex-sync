@@ -17,6 +17,7 @@ export interface PlannedPosting {
   date: string;
   xero_account_id: string;
   xero_account_code: string;
+  tracking: Array<{ categoryId: string; optionId: string }>;
   contact_name: string;
   description: string;
   reference: string;
@@ -106,6 +107,13 @@ export async function planPostings(): Promise<PlannedPosting[]> {
     const mapping = resolveMapping(fullDesc) ?? resolveMapping(merchant);
     const defaultCode = kind === "SPEND" ? config.XERO_EXPENSE_CODE : config.XERO_REVENUE_CODE;
     const accountCode = mapping?.account_code ?? defaultCode ?? "";
+    const tracking: Array<{ categoryId: string; optionId: string }> = [];
+    if (mapping?.tracking_1_id && mapping.tracking_1_option_id) {
+      tracking.push({ categoryId: mapping.tracking_1_id, optionId: mapping.tracking_1_option_id });
+    }
+    if (mapping?.tracking_2_id && mapping.tracking_2_option_id) {
+      tracking.push({ categoryId: mapping.tracking_2_id, optionId: mapping.tracking_2_option_id });
+    }
     plans.push({
       kind,
       airwallex_id: t.id,
@@ -118,6 +126,7 @@ export async function planPostings(): Promise<PlannedPosting[]> {
       date: dateOf(t),
       xero_account_id: accountId,
       xero_account_code: accountCode,
+      tracking,
       contact_name: merchant ?? "Airwallex",
       description: fullDesc ?? `Airwallex ${t.currency} card purchase`,
       reference,

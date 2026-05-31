@@ -8,6 +8,7 @@ import { addMapping, listMappings, removeMapping } from "./sync/mappings.js";
 import { printSummary } from "./sync/summary.js";
 import { discoverAwxWallets, listBankAccounts } from "./xero/accounts.js";
 import { xeroGet } from "./xero/client.js";
+import { refreshTracking, listCategories, listOptions, resolveTrackingSpec } from "./xero/tracking.js";
 import { db } from "./db/db.js";
 import { log } from "./log.js";
 
@@ -173,12 +174,33 @@ const mapCmd = program.command("map").description("Manage merchant → Xero acco
 
 mapCmd
   .command("add <pattern> <code>")
-  .description("Add or update a mapping. Pattern is case-insensitive substring against the merchant description.")
+  .description("Add/update a mapping. Pattern is a case-insensitive substring against the merchant description.")
   .option("--kind <kind>", "EXPENSE or REVENUE", "EXPENSE")
-  .action((pattern: string, code: string, opts: { kind?: string }) => {
+  .option("--track1 <Category:Option>", "tracking, e.g. Project:oldworldrankings.com")
+  .option("--track2 <Category:Option>", "second tracking category if you use one")
+  .action((pattern: string, code: string, opts: { kind?: string; track1?: string; track2?: string }) => {
     const kind = (opts.kind ?? "EXPENSE").toUpperCase() as "EXPENSE" | "REVENUE";
-    addMapping(pattern, code, kind);
-    log.info({ pattern: pattern.toUpperCase(), code, kind }, "mapping added");
+    const t1 = opts.track1 ? resolveTrackingSpec(opts.track1) : null;
+    const t2 = opts.track2 ? resolveTrackingSpec(opts.track2) : null;
+    addMapping({
+      pattern,
+      code,
+      kind,
+      tracking_1_id: t1?.categoryId ?? null,
+      tracking_1_option_id: t1?.optionId ?? null,
+      tracking_2_id: t2?.categoryId ?? null,
+      tracking_2_option_id: t2?.optionId ?? null,
+    });
+    log.info(
+      {
+        pattern: pattern.toUpperCase(),
+        code,
+        kind,
+        track1: t1 ? `${t1.categoryName}:${t1.optionName}` : undefined,
+        track2: t2 ? `${t2.categoryName}:${t2.optionName}` : undefined,
+      },
+      "mapping added",
+    );
   });
 
 mapCmd
@@ -198,7 +220,42 @@ mapCmd
       log.info("no mappings");
       return;
     }
-    for (const m of all) log.info({ pattern: m.pattern, code: m.account_code, kind: m.account_kind });
+    // Resolve tracking option IDs → names for display.
+    const optName = new Map(listOptions().map((o) => [o.id, o.name]));
+    for (const m of all) {
+      log.info({
+        pattern: m.pattern,
+        code: m.account_code,
+        kind: m.account_kind,
+        track1: m.tracking_1_option_id ? optName.get(m.tracking_1_option_id) ?? m.tracking_1_option_id : undefined,
+        track2: m.tracking_2_option_id ? optName.get(m.tracking_2_option_id) ?? m.tracking_2_option_id : undefined,
+      });
+    }
+  });
+
+const trackCmd = program.command("tracking").description("Manage cached Xero tracking categories");
+
+trackCmd
+  .command("refresh")
+  .description("Pull tracking categories + options from Xero into the local cache")
+  .action(async () => {
+    const r = await refreshTracking();
+    log.info(r, "tracking cache refreshed");
+  });
+
+trackCmd
+  .command("list")
+  .description("List cached tracking categories and their options")
+  .action(() => {
+    const cats = listCategories();
+    if (cats.length === 0) {
+      log.info("no tracking categories cached — run `pnpm sync tracking refresh`");
+      return;
+    }
+    for (const c of cats) {
+      const opts = listOptions(c.id).filter((o) => o.status === "ACTIVE").map((o) => o.name);
+      log.info({ category: c.name, status: c.status, options: opts });
+    }
   });
 
 program.parseAsync(process.argv).catch((err) => {

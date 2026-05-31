@@ -28,6 +28,16 @@ function buildBody(plan: PlannedPosting, includeId?: string) {
             UnitAmount: Math.abs(plan.aud_amount),
             AccountCode: plan.xero_account_code,
             TaxType: "EXEMPTEXPENSES",
+            // Omit Tracking entirely when we have none, so updating an unmapped row
+            // doesn't wipe tracking a user set manually in the Xero UI.
+            ...(plan.tracking.length
+              ? {
+                  Tracking: plan.tracking.map((t) => ({
+                    TrackingCategoryID: t.categoryId,
+                    TrackingOptionID: t.optionId,
+                  })),
+                }
+              : {}),
           },
         ],
         BankAccount: { AccountID: plan.xero_account_id },

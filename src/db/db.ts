@@ -67,6 +67,19 @@ const migrations = [
     account_kind TEXT NOT NULL DEFAULT 'EXPENSE',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS xero_tracking_categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS xero_tracking_options (
+    id TEXT PRIMARY KEY,
+    category_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE TABLE IF NOT EXISTS fx_rates (
     date TEXT NOT NULL,
     from_currency TEXT NOT NULL,
@@ -115,3 +128,7 @@ function tryAddColumn(table: string, column: string, decl: string) {
   }
 }
 tryAddColumn("xero_postings", "last_pushed_hash", "TEXT");
+tryAddColumn("merchant_mappings", "tracking_1_id", "TEXT");
+tryAddColumn("merchant_mappings", "tracking_1_option_id", "TEXT");
+tryAddColumn("merchant_mappings", "tracking_2_id", "TEXT");
+tryAddColumn("merchant_mappings", "tracking_2_option_id", "TEXT");

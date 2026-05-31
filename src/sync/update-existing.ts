@@ -21,6 +21,10 @@ function isDeletedInXero(err: Error): boolean {
   return err.message.includes("not of valid status for modification");
 }
 
+function isReconciledInXero(err: Error): boolean {
+  return err.message.includes("has been reconciled with a Bank Statement");
+}
+
 export interface UpdateOptions {
   commit: boolean;
   limit?: number;
@@ -62,6 +66,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
   let updated = 0;
   let reposted = 0;
   let skipped = 0;
+  let locked = 0;
   let failed = 0;
   for (const plan of slice) {
     const row = postedMap.get(plan.airwallex_id)!;
@@ -84,7 +89,13 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
       log.info({ ref: plan.reference, contact: plan.contact_name }, "updated");
     } catch (err) {
       const e = err as Error;
-      if (isDeletedInXero(e)) {
+      if (isReconciledInXero(e)) {
+        // Row is reconciled against a bank statement in Xero → locked from edits.
+        // Mark our hash as current so we stop retrying (and stop alerting).
+        updateHash.run(currentHash, plan.airwallex_id);
+        locked += 1;
+        log.info({ ref: plan.reference }, "skipped (reconciled/locked in Xero)");
+      } else if (isDeletedInXero(e)) {
         try {
           const newId = await postBankTransaction(plan);
           recordPosting.run({
@@ -111,7 +122,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
     }
   }
   log.info(
-    { total: slice.length, updated, reposted, skipped, failed, dry_run: !opts.commit, force: !!opts.force },
+    { total: slice.length, updated, reposted, skipped, locked, failed, dry_run: !opts.commit, force: !!opts.force },
     "update summary",
   );
   if (failed > 0) process.exitCode = 1;
