@@ -168,3 +168,7 @@ tryAddColumn("merchant_mappings", "tracking_2_option_id", "TEXT");
 // subscription item / checkout session), so revenue splits by product, not amount.
 tryAddColumn("stripe_balance_transactions", "product_id", "TEXT");
 tryAddColumn("stripe_balance_transactions", "product_name", "TEXT");
+// Multi-source postings: tag which source produced each xero_postings row.
+// (airwallex_id column now holds the generic source_id; Airwallex & Stripe ids
+// don't collide, so the existing PK still holds.)
+tryAddColumn("xero_postings", "source", "TEXT NOT NULL DEFAULT 'airwallex'");

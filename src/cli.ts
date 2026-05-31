@@ -3,6 +3,7 @@ import { syncAirwallex } from "./sync/airwallex-sync.js";
 import { syncStripe } from "./sync/stripe-sync.js";
 import { listConversionPairs } from "./sync/conversions.js";
 import { planPostings } from "./sync/plan.js";
+import { planStripePostings } from "./sync/stripe-plan.js";
 import { postToXero } from "./sync/post.js";
 import { updateExistingPostings } from "./sync/update-existing.js";
 import { addMapping, listMappings, removeMapping } from "./sync/mappings.js";
@@ -150,6 +151,31 @@ program
       );
     }
     log.info({ count: plans.length, net_aud_impact: Number(totalAud.toFixed(2)) }, "plan summary");
+  });
+
+program
+  .command("stripe-plan")
+  .description("Dry-run: show planned Xero BankTransactions from Stripe balance_transactions (no writes)")
+  .action(() => {
+    const plans = planStripePostings();
+    if (plans.length === 0) {
+      log.info("nothing to plan - run `sync stripe` first");
+      return;
+    }
+    const byCat: Record<string, { n: number; aud: number }> = {};
+    let net = 0;
+    for (const p of plans) {
+      const cat = (p.notes ?? "").split(" ")[0] || "?";
+      (byCat[cat] ??= { n: 0, aud: 0 });
+      byCat[cat].n += 1;
+      const signed = p.kind === "RECEIVE" ? p.aud_amount : -p.aud_amount;
+      byCat[cat].aud += signed;
+      net += signed;
+    }
+    for (const [cat, v] of Object.entries(byCat)) {
+      log.info({ category: cat, count: v.n, aud: Number(v.aud.toFixed(2)) }, "stripe plan group");
+    }
+    log.info({ count: plans.length, net_aud_impact: Number(net.toFixed(2)) }, "stripe plan summary (dry-run)");
   });
 
 program

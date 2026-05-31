@@ -6,8 +6,8 @@ import { planHash } from "./hash.js";
 
 const clearPosting = db.prepare("DELETE FROM xero_postings WHERE airwallex_id = ?");
 const recordPosting = db.prepare(`
-  INSERT INTO xero_postings (airwallex_id, xero_txn_id, aud_amount, fx_rate, last_pushed_hash)
-  VALUES (@airwallex_id, @xero_txn_id, @aud_amount, @fx_rate, @hash)
+  INSERT INTO xero_postings (airwallex_id, source, xero_txn_id, aud_amount, fx_rate, last_pushed_hash)
+  VALUES (@airwallex_id, @source, @xero_txn_id, @aud_amount, @fx_rate, @hash)
   ON CONFLICT(airwallex_id) DO UPDATE SET
     xero_txn_id = excluded.xero_txn_id,
     aud_amount = excluded.aud_amount,
@@ -43,10 +43,10 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
   // treating them as "already in sync" so we never blindly re-push existing data.
   let backfilled = 0;
   for (const plan of plans) {
-    const row = postedMap.get(plan.airwallex_id);
+    const row = postedMap.get(plan.source_id);
     if (row && !row.last_pushed_hash) {
       const h = planHash(plan);
-      updateHash.run(h, plan.airwallex_id);
+      updateHash.run(h, plan.source_id);
       row.last_pushed_hash = h;
       backfilled += 1;
     }
@@ -55,7 +55,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
     log.info({ backfilled }, "backfilled last_pushed_hash for pre-hash rows (no Xero writes)");
   }
 
-  const work = plans.filter((p) => postedMap.has(p.airwallex_id));
+  const work = plans.filter((p) => postedMap.has(p.source_id));
   const slice = opts.limit !== undefined ? work.slice(0, opts.limit) : work;
 
   if (slice.length === 0) {
@@ -69,7 +69,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
   let locked = 0;
   let failed = 0;
   for (const plan of slice) {
-    const row = postedMap.get(plan.airwallex_id)!;
+    const row = postedMap.get(plan.source_id)!;
     const currentHash = planHash(plan);
     if (!opts.force && currentHash === row.last_pushed_hash) {
       skipped += 1;
@@ -84,7 +84,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
     }
     try {
       await updateBankTransaction(row.xero_txn_id, plan);
-      updateHash.run(currentHash, plan.airwallex_id);
+      updateHash.run(currentHash, plan.source_id);
       updated += 1;
       log.info({ ref: plan.reference, contact: plan.contact_name }, "updated");
     } catch (err) {
@@ -92,14 +92,15 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
       if (isReconciledInXero(e)) {
         // Row is reconciled against a bank statement in Xero → locked from edits.
         // Mark our hash as current so we stop retrying (and stop alerting).
-        updateHash.run(currentHash, plan.airwallex_id);
+        updateHash.run(currentHash, plan.source_id);
         locked += 1;
         log.info({ ref: plan.reference }, "skipped (reconciled/locked in Xero)");
       } else if (isDeletedInXero(e)) {
         try {
           const newId = await postBankTransaction(plan);
           recordPosting.run({
-            airwallex_id: plan.airwallex_id,
+            airwallex_id: plan.source_id,
+            source: plan.source,
             xero_txn_id: newId,
             aud_amount: plan.aud_amount,
             fx_rate: plan.fx_rate,
@@ -109,7 +110,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
           log.info({ ref: plan.reference, new_xero_id: newId }, "re-posted (was deleted in Xero)");
         } catch (postErr) {
           failed += 1;
-          clearPosting.run(plan.airwallex_id);
+          clearPosting.run(plan.source_id);
           log.error(
             { ref: plan.reference, err: (postErr as Error).message },
             "re-post failed; cleared from xero_postings",

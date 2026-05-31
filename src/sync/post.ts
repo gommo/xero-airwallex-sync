@@ -6,8 +6,8 @@ import { planHash } from "./hash.js";
 
 const alreadyPosted = db.prepare("SELECT 1 FROM xero_postings WHERE airwallex_id = ?");
 const recordPosting = db.prepare(`
-  INSERT INTO xero_postings (airwallex_id, xero_txn_id, aud_amount, fx_rate, last_pushed_hash)
-  VALUES (@airwallex_id, @xero_txn_id, @aud_amount, @fx_rate, @hash)
+  INSERT INTO xero_postings (airwallex_id, source, xero_txn_id, aud_amount, fx_rate, last_pushed_hash)
+  VALUES (@airwallex_id, @source, @xero_txn_id, @aud_amount, @fx_rate, @hash)
   ON CONFLICT(airwallex_id) DO NOTHING
 `);
 
@@ -32,7 +32,7 @@ export async function postToXero(opts: PostOptions): Promise<void> {
   let failed = 0;
 
   for (const plan of plans) {
-    if (alreadyPosted.get(plan.airwallex_id)) {
+    if (alreadyPosted.get(plan.source_id)) {
       skipped += 1;
       log.debug({ ref: plan.reference }, "already posted, skipping");
       continue;
@@ -47,7 +47,8 @@ export async function postToXero(opts: PostOptions): Promise<void> {
     try {
       const xeroId = await tryPost(plan);
       recordPosting.run({
-        airwallex_id: plan.airwallex_id,
+        airwallex_id: plan.source_id,
+        source: plan.source,
         xero_txn_id: xeroId,
         aud_amount: plan.aud_amount,
         fx_rate: plan.fx_rate,

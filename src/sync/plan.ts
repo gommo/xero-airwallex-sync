@@ -7,12 +7,15 @@ import { config } from "../config.js";
 
 export interface PlannedPosting {
   kind: "SPEND" | "RECEIVE";
-  airwallex_id: string;
+  source: "airwallex" | "stripe";
+  /** The external transaction id from the source (Airwallex financial txn id, or
+   *  Stripe balance-transaction id). Dedupe key, paired with `source`. */
+  source_id: string;
   currency: string;
   ccy_amount: number;
   aud_amount: number;
   fx_rate: number;
-  fx_source: "airwallex_client_rate" | "frankfurter.app";
+  fx_source: "airwallex_client_rate" | "frankfurter.app" | "stripe";
   fx_date: string;
   date: string;
   xero_account_id: string;
@@ -116,7 +119,8 @@ export async function planPostings(): Promise<PlannedPosting[]> {
     }
     plans.push({
       kind,
-      airwallex_id: t.id,
+      source: "airwallex",
+      source_id: t.id,
       currency: t.currency,
       ccy_amount: t.amount,
       aud_amount: audRounded,
