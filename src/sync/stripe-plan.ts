@@ -48,6 +48,8 @@ export function planStripePostings(): PlannedPosting[] {
   const SPON = config.STRIPE_CODE_SPONSORSHIP ?? "";
   const TICK = config.STRIPE_CODE_TICKETING ?? "";
   const FEES = config.STRIPE_CODE_FEES ?? "";
+  const CLEARING = config.STRIPE_CODE_CLEARING ?? "";
+  const RESERVE = config.STRIPE_CODE_RESERVE ?? "";
   const SPON_PROD = config.STRIPE_SPONSORSHIP_PRODUCT_ID ?? "";
   const tracking =
     config.STRIPE_TRACKING_CATEGORY_ID && config.STRIPE_TRACKING_OPTION_ID
@@ -160,8 +162,45 @@ export function planStripePostings(): PlannedPosting[] {
         });
         break;
       }
+      case "transfer": {
+        // Organiser money moving out to a connected account -> clearing liability.
+        plans.push({
+          ...base,
+          kind: r.net < 0 ? "SPEND" : "RECEIVE",
+          source_id: r.id,
+          currency: "AUD",
+          ccy_amount: Math.abs(r.net) / 100,
+          aud_amount: Math.abs(r.net) / 100,
+          fx_rate: 1,
+          xero_account_code: CLEARING,
+          contact_name: "Connected account",
+          description: "Transfer to connected account",
+          reference: `Stripe Connect transfer AUD ${(Math.abs(r.net) / 100).toFixed(2)}`,
+          notes: `${r.reporting_category} (clearing liability)`,
+        });
+        break;
+      }
+      case "connect_reserved_funds": {
+        // Rolling reserve held by Stripe -> reserve asset. Funding reduces the
+        // bank balance (SPEND into the asset); release adds it back (RECEIVE).
+        plans.push({
+          ...base,
+          kind: r.net < 0 ? "SPEND" : "RECEIVE",
+          source_id: r.id,
+          currency: "AUD",
+          ccy_amount: Math.abs(r.net) / 100,
+          aud_amount: Math.abs(r.net) / 100,
+          fx_rate: 1,
+          xero_account_code: RESERVE,
+          contact_name: "Stripe",
+          description: r.net < 0 ? "Connect reserve held" : "Connect reserve released",
+          reference: `Stripe Connect reserve AUD ${(Math.abs(r.net) / 100).toFixed(2)}`,
+          notes: `${r.reporting_category} (reserve asset)`,
+        });
+        break;
+      }
       default:
-        // transfer / connect_reserved_funds / payout: not posted (balance-sheet / Transfer).
+        // payout: not posted - reconcile as a bank Transfer to the real bank.
         skipped[r.reporting_category ?? "unknown"] = (skipped[r.reporting_category ?? "unknown"] ?? 0) + 1;
     }
   }

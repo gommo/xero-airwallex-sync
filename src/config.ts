@@ -17,6 +17,8 @@ const schema = z.object({
   STRIPE_CODE_SPONSORSHIP: z.string().optional(),
   STRIPE_CODE_TICKETING: z.string().optional(),
   STRIPE_CODE_FEES: z.string().optional(),
+  STRIPE_CODE_CLEARING: z.string().optional(),
+  STRIPE_CODE_RESERVE: z.string().optional(),
   STRIPE_SPONSORSHIP_PRODUCT_ID: z.string().optional(),
   XERO_CLIENT_ID: z.string().optional(),
   XERO_CLIENT_SECRET: z.string().optional(),
