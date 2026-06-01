@@ -81,6 +81,10 @@ export function planStripePostings(): PlannedPosting[] {
       date,
       xero_account_id: BANK,
       tracking,
+      // Placeholder until the GST treatment is decided (separate work): BAS
+      // Excluded is valid on any account and makes no GST claim, so it's safe
+      // and reversible. Revenue lines must NOT inherit the EXEMPTEXPENSES default.
+      tax_type: "BASEXCLUDED",
     };
 
     const incomeLine = (code: string, label: string): PlannedPosting => ({

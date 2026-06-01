@@ -205,8 +205,10 @@ program
   .description("Post planned Xero BankTransactions. Default is dry-run; pass --commit to actually write.")
   .option("--commit", "actually call Xero (without this flag, runs as dry-run)")
   .option("--limit <n>", "post at most N entries (useful for first-run sanity)", (v) => parseInt(v, 10))
-  .action(async (opts: { commit?: boolean; limit?: number }) => {
-    await postToXero({ commit: !!opts.commit, limit: opts.limit });
+  .option("--source <source>", "which planner to post: airwallex (default) or stripe", "airwallex")
+  .action(async (opts: { commit?: boolean; limit?: number; source?: string }) => {
+    const source = opts.source === "stripe" ? "stripe" : "airwallex";
+    await postToXero({ commit: !!opts.commit, limit: opts.limit, source });
   });
 
 program

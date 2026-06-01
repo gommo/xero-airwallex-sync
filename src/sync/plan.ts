@@ -25,6 +25,8 @@ export interface PlannedPosting {
   description: string;
   reference: string;
   notes?: string;
+  /** Xero TaxType for the line. Defaults to EXEMPTEXPENSES (Airwallex spend) when unset. */
+  tax_type?: string;
 }
 
 function merchantFromDescription(desc: string | null): string | null {

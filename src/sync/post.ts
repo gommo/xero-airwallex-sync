@@ -1,6 +1,7 @@
 import { db } from "../db/db.js";
 import { log } from "../log.js";
 import { planPostings, type PlannedPosting } from "./plan.js";
+import { planStripePostings } from "./stripe-plan.js";
 import { postBankTransaction } from "../xero/bank-transactions.js";
 import { planHash } from "./hash.js";
 
@@ -14,10 +15,13 @@ const recordPosting = db.prepare(`
 export interface PostOptions {
   commit: boolean;
   limit?: number;
+  source?: "airwallex" | "stripe";
 }
 
 export async function postToXero(opts: PostOptions): Promise<void> {
-  const allPlans = await planPostings();
+  const source = opts.source ?? "airwallex";
+  const allPlans = source === "stripe" ? planStripePostings() : await planPostings();
+  log.info({ source, planned: allPlans.length }, "post: planner loaded");
   if (allPlans.length === 0) {
     log.info("nothing to post");
     return;

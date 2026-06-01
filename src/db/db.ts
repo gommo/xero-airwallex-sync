@@ -172,3 +172,31 @@ tryAddColumn("stripe_balance_transactions", "product_name", "TEXT");
 // (airwallex_id column now holds the generic source_id; Airwallex & Stripe ids
 // don't collide, so the existing PK still holds.)
 tryAddColumn("xero_postings", "source", "TEXT NOT NULL DEFAULT 'airwallex'");
+
+// One-time: drop the legacy FK on xero_postings (airwallex_id -> airwallex_transactions).
+// It blocked recording postings from other sources (Stripe). Rebuild the table
+// without the FK, preserving all existing rows. SQLite can't ALTER away an FK.
+{
+  const fks = db.prepare("PRAGMA foreign_key_list(xero_postings)").all() as Array<{ table: string }>;
+  if (fks.some((f) => f.table === "airwallex_transactions")) {
+    db.pragma("foreign_keys = OFF");
+    db.transaction(() => {
+      db.exec(`CREATE TABLE xero_postings_new (
+        airwallex_id TEXT PRIMARY KEY,
+        xero_txn_id TEXT NOT NULL,
+        aud_amount REAL NOT NULL,
+        fx_rate REAL NOT NULL,
+        posted_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_pushed_hash TEXT,
+        source TEXT NOT NULL DEFAULT 'airwallex'
+      )`);
+      db.exec(`INSERT INTO xero_postings_new
+        (airwallex_id, xero_txn_id, aud_amount, fx_rate, posted_at, last_pushed_hash, source)
+        SELECT airwallex_id, xero_txn_id, aud_amount, fx_rate, posted_at, last_pushed_hash, source
+        FROM xero_postings`);
+      db.exec(`DROP TABLE xero_postings`);
+      db.exec(`ALTER TABLE xero_postings_new RENAME TO xero_postings`);
+    })();
+    db.pragma("foreign_keys = ON");
+  }
+}
