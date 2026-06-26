@@ -72,6 +72,10 @@ export function planStripePostings(): PlannedPosting[] {
     const date = aetDate(r.created);
     const presentmentCcy = (r.presentment_currency ?? r.currency).toUpperCase();
     const presentment = (r.presentment_amount ?? r.amount) / 100;
+    // Revenue GST follows the currency the customer was billed in: AUD sales are
+    // taxable (GST on Income), anything billed in a foreign currency is an export
+    // (GST Free Exports). Refunds are contra-revenue, so they follow the same rule.
+    const revenueTax = presentmentCcy === "AUD" ? "OUTPUT" : "EXEMPTEXPORT";
 
     const base = {
       source: "stripe" as const,
@@ -81,14 +85,14 @@ export function planStripePostings(): PlannedPosting[] {
       date,
       xero_account_id: BANK,
       tracking,
-      // Placeholder until the GST treatment is decided (separate work): BAS
-      // Excluded is valid on any account and makes no GST claim, so it's safe
-      // and reversible. Revenue lines must NOT inherit the EXEMPTEXPENSES default.
+      // Default for balance-sheet movements (transfers, reserve): BAS Excluded,
+      // makes no GST claim. Income/fee lines override this below (revenueTax / INPUT).
       tax_type: "BASEXCLUDED",
     };
 
     const incomeLine = (code: string, label: string): PlannedPosting => ({
       ...base,
+      tax_type: revenueTax,
       kind: "RECEIVE",
       source_id: r.id,
       currency: presentmentCcy,
@@ -106,6 +110,7 @@ export function planStripePostings(): PlannedPosting[] {
 
     const feeLine = (): PlannedPosting => ({
       ...base,
+      tax_type: "INPUT", // Stripe charges AU GST on its fees -> GST on Expenses
       kind: "SPEND",
       source_id: `${r.id}:fee`,
       currency: "AUD",
@@ -136,6 +141,7 @@ export function planStripePostings(): PlannedPosting[] {
         // Standalone Stripe/Connect fee debit.
         plans.push({
           ...base,
+          tax_type: "INPUT", // GST on Expenses
           kind: "SPEND",
           source_id: r.id,
           currency: "AUD",
@@ -153,6 +159,7 @@ export function planStripePostings(): PlannedPosting[] {
       case "refund": {
         plans.push({
           ...base,
+          tax_type: revenueTax, // contra-revenue -> mirror the charge's GST treatment
           kind: "SPEND", // contra-revenue
           source_id: r.id,
           currency: presentmentCcy,
