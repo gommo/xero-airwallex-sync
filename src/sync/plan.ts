@@ -4,10 +4,13 @@ import { getRate } from "../fx/rates.js";
 import { listConversionPairs } from "./conversions.js";
 import { resolveMapping } from "./mappings.js";
 import { config } from "../config.js";
+import { isStripeDeposit, matchStripePayouts } from "./stripe-payouts.js";
 
 export interface PlannedPosting {
-  kind: "SPEND" | "RECEIVE";
-  source: "airwallex" | "stripe";
+  /** TRANSFER moves money between two Xero bank accounts (xero_account_id ->
+   *  to_account_id) and is posted as a Xero BankTransfer, not a BankTransaction. */
+  kind: "SPEND" | "RECEIVE" | "TRANSFER";
+  source: "airwallex" | "stripe" | "paypal";
   /** The external transaction id from the source (Airwallex financial txn id, or
    *  Stripe balance-transaction id). Dedupe key, paired with `source`. */
   source_id: string;
@@ -27,6 +30,11 @@ export interface PlannedPosting {
   notes?: string;
   /** Xero TaxType for the line. Defaults to EXEMPTEXPENSES (Airwallex spend) when unset. */
   tax_type?: string;
+  /** TRANSFER only: the receiving Xero bank account. */
+  to_account_id?: string;
+  /** Other source ids this posting also settles (e.g. the Airwallex deposit that a
+   *  Stripe payout transfer covers). Recorded as posted so no other planner posts them. */
+  linked_source_ids?: string[];
 }
 
 function merchantFromDescription(desc: string | null): string | null {
@@ -79,6 +87,11 @@ export async function planPostings(): Promise<PlannedPosting[]> {
 
   const plans: PlannedPosting[] = [];
 
+  // Deposits that are Stripe payouts arriving in a wallet are NOT income: the
+  // revenue was already booked from the Stripe charge. The Stripe planner posts
+  // them as a bank transfer (see stripe-payouts.ts), so skip them here.
+  const stripeDeposits = new Set(matchStripePayouts().matched.map((m) => m.deposit_id));
+
   // 1) Non-conversion, non-AUD settled txns: ISSUING_CAPTURE, DEPOSIT.
   //    LEFT JOIN balance_history to enrich with merchant description (the
   //    financial_transactions endpoint omits it).
@@ -95,6 +108,14 @@ export async function planPostings(): Promise<PlannedPosting[]> {
 
   for (const t of txns) {
     if (conversionLegIds.has(t.id)) continue; // handled separately
+    if (stripeDeposits.has(t.id)) continue; // posted as a transfer by the Stripe planner
+    if (t.transaction_type === "DEPOSIT" && isStripeDeposit(`${t.description ?? ""} ${t.merchant_description ?? ""}`)) {
+      log.warn(
+        { id: t.id, amount: `${t.amount} ${t.currency}` },
+        "deposit from Stripe with no matching Stripe payout yet; not posting as income (run `sync stripe`)",
+      );
+      continue;
+    }
     const accountId = wallets.get(t.currency);
     if (!accountId) {
       log.warn({ currency: t.currency, id: t.id }, "no Xero wallet account for currency, skipping");

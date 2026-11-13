@@ -1,8 +1,10 @@
 import { config } from "../config.js";
 
-let cached: { token: string; expiresAt: number } | null = null;
+const DEFAULT_SCOPE = "accounting.transactions accounting.settings";
+const cache = new Map<string, { token: string; expiresAt: number }>();
 
-export async function getXeroToken(): Promise<string> {
+export async function getXeroToken(scope: string = DEFAULT_SCOPE): Promise<string> {
+  const cached = cache.get(scope);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
 
   if (!config.XERO_CLIENT_ID || !config.XERO_CLIENT_SECRET) {
@@ -18,7 +20,7 @@ export async function getXeroToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "client_credentials",
-      scope: "accounting.transactions accounting.settings",
+      scope,
     }).toString(),
   });
 
@@ -27,6 +29,7 @@ export async function getXeroToken(): Promise<string> {
   }
 
   const body = (await res.json()) as { access_token: string; expires_in: number };
-  cached = { token: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 };
-  return cached.token;
+  const entry = { token: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 };
+  cache.set(scope, entry);
+  return entry.token;
 }

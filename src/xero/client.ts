@@ -9,7 +9,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Xero limits: 60 calls/min/tenant + 5 concurrent; a 429 carries a Retry-After
 // header (whole seconds). Honour it and retry rather than failing the row, so
 // large backfills and the unattended daily job ride through rate limits.
-async function xeroFetch(method: "GET" | "POST", path: string, url: string | URL, body?: unknown): Promise<Response> {
+async function xeroFetch(method: "GET" | "POST" | "PUT", path: string, url: string | URL, body?: unknown): Promise<Response> {
   if (!config.XERO_TENANT_ID) throw new Error("XERO_TENANT_ID missing");
   const maxRetries = 10;
   for (let attempt = 0; ; attempt++) {
@@ -51,6 +51,12 @@ export async function xeroGet<T>(path: string, params?: Record<string, string | 
 export async function xeroPost<T>(path: string, body: unknown): Promise<T> {
   const res = await xeroFetch("POST", path, `${BASE}${path}`, body);
   if (!res.ok) throw new Error(`Xero POST ${path} ${res.status}: ${await res.text()}`);
+  return (await res.json()) as T;
+}
+
+export async function xeroPut<T>(path: string, body: unknown): Promise<T> {
+  const res = await xeroFetch("PUT", path, `${BASE}${path}`, body);
+  if (!res.ok) throw new Error(`Xero PUT ${path} ${res.status}: ${await res.text()}`);
   return (await res.json()) as T;
 }
 

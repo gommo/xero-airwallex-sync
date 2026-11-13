@@ -1,6 +1,7 @@
 import { db } from "../db/db.js";
 import { log } from "../log.js";
-import { planPostings, type PlannedPosting } from "./plan.js";
+import { planPostings } from "./plan.js";
+import { planStripePostings } from "./stripe-plan.js";
 import { postBankTransaction, updateBankTransaction } from "../xero/bank-transactions.js";
 import { planHash } from "./hash.js";
 
@@ -16,6 +17,7 @@ const recordPosting = db.prepare(`
     posted_at = datetime('now')
 `);
 const updateHash = db.prepare(`UPDATE xero_postings SET last_pushed_hash = ? WHERE airwallex_id = ?`);
+const updateAmounts = db.prepare(`UPDATE xero_postings SET aud_amount = ?, fx_rate = ? WHERE airwallex_id = ?`);
 
 function isDeletedInXero(err: Error): boolean {
   return err.message.includes("not of valid status for modification");
@@ -30,13 +32,17 @@ export interface UpdateOptions {
   limit?: number;
   /** Push even if the plan hash matches the last-pushed hash. */
   force?: boolean;
+  /** Which planner's rows to refresh. Default airwallex. */
+  source?: "airwallex" | "stripe";
 }
 
 export async function updateExistingPostings(opts: UpdateOptions): Promise<void> {
-  const plans = await planPostings();
+  const source = opts.source ?? "airwallex";
+  // Bank transfers cannot be edited through the Xero API, so they are never refreshed.
+  const plans = (source === "stripe" ? await planStripePostings() : await planPostings()).filter((p) => p.kind !== "TRANSFER");
   const posted = db
-    .prepare("SELECT airwallex_id, xero_txn_id, last_pushed_hash FROM xero_postings")
-    .all() as Array<{ airwallex_id: string; xero_txn_id: string; last_pushed_hash: string | null }>;
+    .prepare("SELECT airwallex_id, xero_txn_id, last_pushed_hash FROM xero_postings WHERE source = ?")
+    .all(source) as Array<{ airwallex_id: string; xero_txn_id: string; last_pushed_hash: string | null }>;
   const postedMap = new Map(posted.map((p) => [p.airwallex_id, p]));
 
   // One-time backfill: rows without a hash get their *current* plan hash stored,
@@ -77,7 +83,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
     }
     if (!opts.commit) {
       log.info(
-        { ref: plan.reference, contact: plan.contact_name, code: plan.xero_account_code },
+        { date: plan.date, aud: plan.aud_amount, ref: plan.reference, contact: plan.contact_name, code: plan.xero_account_code },
         "[dry-run] would update (hash changed)",
       );
       continue;
@@ -85,6 +91,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
     try {
       await updateBankTransaction(row.xero_txn_id, plan);
       updateHash.run(currentHash, plan.source_id);
+      updateAmounts.run(plan.aud_amount, plan.fx_rate, plan.source_id);
       updated += 1;
       log.info({ ref: plan.reference, contact: plan.contact_name }, "updated");
     } catch (err) {
@@ -123,7 +130,7 @@ export async function updateExistingPostings(opts: UpdateOptions): Promise<void>
     }
   }
   log.info(
-    { total: slice.length, updated, reposted, skipped, locked, failed, dry_run: !opts.commit, force: !!opts.force },
+    { source, total: slice.length, updated, reposted, skipped, locked, failed, dry_run: !opts.commit, force: !!opts.force },
     "update summary",
   );
   if (failed > 0) process.exitCode = 1;

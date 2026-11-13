@@ -93,6 +93,24 @@ const migrations = [
     raw_json TEXT NOT NULL,
     fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS paypal_transactions (
+    id TEXT PRIMARY KEY,
+    event_code TEXT,
+    status TEXT,
+    currency TEXT NOT NULL,
+    amount REAL NOT NULL,
+    fee REAL NOT NULL DEFAULT 0,
+    initiated_at TEXT NOT NULL,
+    updated_at TEXT,
+    payer_email TEXT,
+    payer_name TEXT,
+    subject TEXT,
+    note TEXT,
+    ending_balance REAL,
+    raw_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_paypal_initiated ON paypal_transactions(initiated_at)`,
   `CREATE TABLE IF NOT EXISTS merchant_mappings (
     pattern TEXT PRIMARY KEY,
     account_code TEXT NOT NULL,

@@ -40,6 +40,7 @@ pnpm sync airwallex              # pull txns + balance_history
 pnpm sync plan                   # dry-run preview of planned Xero postings
 pnpm sync post --commit          # actually post new SETTLED rows (idempotent)
 pnpm sync update-xero --commit   # refresh metadata on existing rows (re-applies current mappings)
+pnpm sync paypal && pnpm sync post --source paypal --commit   # Patreon payouts (see PayPal section)
 pnpm sync summary                # plain-text status digest
 ```
 
@@ -112,6 +113,38 @@ tail -f data/sync.log
 ```
 
 If launchd misfires (laptop asleep at 07:15), it'll run on next wake.
+
+## Stripe: foreign balances and payouts to Airwallex
+
+Xero has no multicurrency here, so every Stripe line is posted in AUD into the one Stripe bank account.
+
+- **AUD balance:** Stripe's own AUD amounts are used as they are.
+- **Foreign balances (USD, NZD, CAD, ...):** each row is converted to AUD at the ECB daily rate for its date, the same as Airwallex card spend. The reference shows the working, e.g. `Stripe Subscriptions/entries USD 7.00 → AUD 9.88 @ 0.70820`.
+- **Conversions inside Stripe (foreign to AUD):** the money stays in the same Xero account, so only the cost is posted: the conversion fee, plus the difference between the AUD received and the ECB value (to `STRIPE_CODE_FX`, or the fees code if unset).
+- **Foreign payouts to Airwallex (USD payout into the USD wallet):** the Stripe payout is matched to the Airwallex `DEPOSIT` (same currency and amount, "stripe" in the description, within ten days) and posted once as a Xero bank transfer from the Stripe account to the `AWX_..._Cash_<CCY>` account. The Airwallex planner skips that deposit, so it is never booked as income.
+- **AUD payouts:** still not posted. Reconcile them by hand as a Transfer to the real bank.
+
+```sh
+pnpm sync stripe-plan --foreign                     # list every converted line and transfer (no writes)
+pnpm sync update-xero --source stripe               # dry-run: posted Stripe rows whose AUD value changed
+pnpm sync update-xero --source stripe --commit      # push those corrections to Xero
+```
+
+## PayPal: Patreon payouts
+
+Patreon pays creator earnings to PayPal in USD. The Xero account `Paypal USD (Manual)` is AUD-denominated with no feed, so without this nothing lands in Xero until someone keys a Receive Money by hand (which is how six months of Old World Fanatics income went missing in 2026).
+
+What it does: pulls PayPal transactions via the Transaction Search API, and posts each successful USD credit from Patreon Inc as a `RECEIVE` on the PayPal account, coded to `PAYPAL_PATREON_CODE` (212 Online Sale - Old World Fanatics), tax `EXEMPTEXPORT`, Project tracking `OldWorldFanatics`, converted at the ECB daily rate. The later PayPal sweep to AUD and on to CBA stays a plain Transfer; PayPal's own conversion rate shows up as a small residual on the account that the sweep absorbs. Currency conversions and withdrawals are logged as manual hints and never posted. `PAYPAL_POST_FROM` is a hard date floor so the hand-keyed history is never duplicated.
+
+Setup: create a **Live** REST app at developer.paypal.com (Apps & Credentials, Live tab) on the business account that receives the payouts, tick **Transaction Search** under features, and put the client id and secret in `.env.local`. Transaction Search has a roughly three-hour lag and serves the last three years.
+
+```sh
+pnpm sync paypal                      # pull last 3 months (--since YYYY-MM-DD for more)
+pnpm sync paypal-plan                 # dry-run: what would be posted
+pnpm sync post --source paypal --commit
+```
+
+The daily `run-sync.sh` runs the pull and post automatically once `PAYPAL_CLIENT_ID` is set.
 
 ## Limitations
 
